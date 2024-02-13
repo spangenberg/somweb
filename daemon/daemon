@@ -1,0 +1,14 @@
+#!/bin/bash
+
+PBIN=$LBPBIN/somweb
+
+export SOMWEB_HOST=""
+export SOMWEB_USERNAME=""
+export SOMWEB_PASSWORD=""
+
+export MQTT_BROKER=""
+export MQTT_PORT=""
+export MQTT_USER=""
+export MQTT_PASS=""
+
+exec "$PBIN/somweb"
