@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,15 +11,12 @@ import (
 	"strings"
 )
 
-type any = interface{}
-
-var webtokenRe = regexp.MustCompile(`(?m)<\s*input\s+id\s*=\s*"webtoken".+value\s*=\s*"(?P<webtoken>\w+)"`)
+var r = regexp.MustCompile(`(?m)<\s*input\s+id\s*=\s*"webtoken".+value\s*=\s*"(?P<webtoken>\w+)"`)
 
 type Client struct {
-	Host     string
-	Username string
-	Password string
-
+	host     string
+	username string
+	password string
 	client   *http.Client
 	cookies  []*http.Cookie
 	webtoken string
@@ -28,11 +24,10 @@ type Client struct {
 
 func NewClient(host, username, password string) (*Client, error) {
 	c := &Client{
-		Host:     host,
-		Username: username,
-		Password: password,
-
-		client: &http.Client{},
+		host:     host,
+		username: username,
+		password: password,
+		client:   &http.Client{},
 	}
 	return c, c.authenticate()
 }
@@ -81,7 +76,7 @@ func (c *Client) ToggleDoor(door string) error {
 }
 
 func (c *Client) Doors() (map[string]bool, error) {
-	req, err := http.NewRequest("GET", c.path("/isg/statusDoorAll.php?access=1&login="+c.Username+"&webtoken="+c.webtoken), nil)
+	req, err := http.NewRequest(http.MethodGet, c.path("/isg/statusDoorAll.php?access=1&login="+c.username+"&webtoken="+c.webtoken), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get all doors: %w", err)
 	}
@@ -94,7 +89,7 @@ func (c *Client) Doors() (map[string]bool, error) {
 		_ = Body.Close()
 	}(resp.Body)
 	var b []byte
-	if b, err = ioutil.ReadAll(resp.Body); err != nil {
+	if b, err = io.ReadAll(resp.Body); err != nil {
 		return nil, fmt.Errorf("unable to read response body: %w", err)
 	}
 	var doors struct {
@@ -132,13 +127,13 @@ func (c *Client) Doors() (map[string]bool, error) {
 
 func (c *Client) authenticate() (err error) {
 	form := url.Values{
-		"login":      {c.Username},
-		"pass":       {c.Password},
+		"login":      {c.username},
+		"pass":       {c.password},
 		"send-login": {"Sign in"},
 	}
 
 	var req *http.Request
-	if req, err = http.NewRequest("POST", c.path("/index.php"), strings.NewReader(form.Encode())); err != nil {
+	if req, err = http.NewRequest(http.MethodPost, c.path("/index.php"), strings.NewReader(form.Encode())); err != nil {
 		return fmt.Errorf("unable to create request: %w", err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
@@ -152,7 +147,7 @@ func (c *Client) authenticate() (err error) {
 	}(resp.Body)
 	c.cookies = resp.Cookies()
 	var b []byte
-	if b, err = ioutil.ReadAll(resp.Body); err != nil {
+	if b, err = io.ReadAll(resp.Body); err != nil {
 		return fmt.Errorf("unable to read response body: %w", err)
 	}
 	if err = c.extractWebtoken(b); err != nil {
@@ -163,7 +158,7 @@ func (c *Client) authenticate() (err error) {
 
 func (c *Client) changeDoorState(door, status string) error {
 	log.Println("changeDoorState", door)
-	req, err := http.NewRequest("GET", c.path(fmt.Sprintf("/isg/opendoor.php?numdoor=%s&status=%s&webtoken=%s", door, status, c.webtoken)), nil)
+	req, err := http.NewRequest(http.MethodGet, c.path(fmt.Sprintf("/isg/opendoor.php?numdoor=%s&status=%s&webtoken=%s", door, status, c.webtoken)), nil)
 	if err != nil {
 		return fmt.Errorf("unable to create request: %w", err)
 	}
@@ -176,7 +171,7 @@ func (c *Client) changeDoorState(door, status string) error {
 		_ = Body.Close()
 	}(resp.Body)
 	var b []byte
-	if b, err = ioutil.ReadAll(resp.Body); err != nil {
+	if b, err = io.ReadAll(resp.Body); err != nil {
 		return fmt.Errorf("unable to read response body: %w", err)
 	}
 	log.Println("changeDoorState", string(b))
@@ -188,36 +183,32 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 }
 
 func (c *Client) extractWebtoken(b []byte) error {
-	submatch := webtokenRe.FindSubmatch(b)
-	for i, name := range webtokenRe.SubexpNames() {
-		if name == "webtoken" {
-			c.webtoken = string(submatch[i])
-			return nil
+	m := r.FindStringSubmatch(string(b))
+	for i, name := range r.SubexpNames() {
+		if name != "webtoken" {
+			continue
+		}
+		if i > 0 && i < len(m) {
+			c.webtoken = m[i]
 		}
 	}
-	return fmt.Errorf("unable to find webtoken in response body")
+	if c.webtoken == "" {
+		return fmt.Errorf("unable to find webtoken in response body")
+	}
+	return nil
 }
 
 func (c *Client) path(uri string) string {
-	return "http://" + c.Host + uri
+	return fmt.Sprintf("http://%s%s", c.host, uri)
 }
 
 func determineDoorState(door any) bool {
-	if door != nil {
-		if f, ok := door.(float64); ok {
-			if f == 1 {
-				return true
-			} else {
-				return false
-			}
-		}
-		if s, ok := door.(string); ok {
-			if s == "1" {
-				return true
-			} else {
-				return false
-			}
-		}
+	switch d := door.(type) {
+	case float64:
+		return d == 1
+	case string:
+		return d == "1"
+	default:
+		return false
 	}
-	return false
 }

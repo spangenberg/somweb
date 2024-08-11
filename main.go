@@ -15,8 +15,6 @@ import (
 	"github.com/spangenberg/somweb/internal"
 )
 
-var duration = 5 * time.Second
-
 type SomwebConfig struct {
 	Host     string
 	Username string
@@ -146,7 +144,7 @@ func main() {
 		}
 	})
 
-	d := time.NewTicker(duration)
+	d := time.NewTicker(5 * time.Second)
 	defer d.Stop()
 
 	m := &sync.Mutex{}
